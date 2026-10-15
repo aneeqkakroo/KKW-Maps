@@ -1,0 +1,6 @@
+{
+  "name": "kashmir-ke-waris",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {"build": "node build-site.cjs", "test": "node test-map-editor.cjs"}
+}

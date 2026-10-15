@@ -1,0 +1,65 @@
+const assert=require('node:assert/strict');
+const fs=require('node:fs');
+const C=require('./map-editor-core.js');
+const districts=JSON.parse(fs.readFileSync('output/jammu_kashmir_districts.geojson','utf8')).features;
+assert.equal(C.number(''),null);assert.equal(C.number('0'),0);assert.equal(C.number('-2.5'),-2.5);
+for(const v of ['NaN','Infinity','3cats','1,234'])assert.throws(()=>C.number(v));
+assert.deepEqual(C.parseCSV('name,value\r\n"a,b",0\r\n"a""b",-4'),[['name','value'],['a,b','0'],['a"b','-4']]);
+assert.throws(()=>C.parseCSV('"unclosed'));
+assert.equal(C.importCSV('name,value\nPoonch,3',districts).issues.length,1);
+let result=C.importCSV('name,region,value\nPoonch,ajk,0\nPoonch,jammu,-2\nBandipora,kashmir,5',districts);
+assert.equal(result.issues.length,0);assert.equal(Object.keys(result.updates).length,3);
+assert.equal(result.updates['ajk-8191016'],0);
+result=C.importCSV('id,value\najk-8191016,3\najk-8191016,4',districts);assert.equal(result.issues.length,1);
+assert.deepEqual(C.scale({a:null,b:0,c:-10,d:10}),{min:-10,max:10,count:3,total:0});
+assert.equal(C.color(null,C.scale({a:0}),'Ocean'), '#e8edf2');
+assert.equal(C.color(0,{min:0,max:10},'Ocean'),C.palettes.Ocean[0]);
+assert.equal(C.color(0,{min:0,max:10},'Ocean',true),C.palettes.Ocean[2]);
+assert.deepEqual(C.parseCSV(C.csv([['a,b','x"y','0']])),[['a,b','x"y','0']]);
+console.log('PASS: CSV parsing, ambiguous names, aliases, duplicate rows, zero/negative/missing values, colour scales');
+
+const {JSDOM}=require('./.qa/node_modules/jsdom');
+const html=fs.readFileSync('districts.html','utf8');
+const errors=[];let exportBlob;let localData={};
+function open(url){return new JSDOM(html,{url,runScripts:'dangerously',pretendToBeVisual:true,beforeParse(w){
+ w.addEventListener('error',e=>errors.push(e.error));
+ w.URL.createObjectURL=blob=>{exportBlob=blob;return 'blob:test'};w.URL.revokeObjectURL=()=>{};
+ w.HTMLAnchorElement.prototype.click=function(){};w.HTMLElement.prototype.scrollIntoView=function(){};
+ w.HTMLDialogElement.prototype.showModal=function(){this.open=true};w.HTMLDialogElement.prototype.close=function(){this.open=false};
+ Object.defineProperty(w,'localStorage',{value:{getItem:k=>localData[k]||null,setItem:(k,v)=>localData[k]=v}});
+}});}
+const readBlob=(w,blob)=>new Promise(resolve=>{const reader=new w.FileReader();reader.onload=()=>resolve(reader.result);reader.readAsText(blob);});
+(async()=>{
+ for(const url of ['file:///D:/map/districts.html','http://localhost/districts.html']){
+  const dom=open(url),w=dom.window,d=w.document,$=id=>d.getElementById(id);
+  const change=(id,v)=>{$(id).value=v;$(id).dispatchEvent(new w.Event('change'));};
+  assert.equal(d.querySelectorAll('.map-area').length,49);assert.match($('summary').textContent,/0 with data/);
+  assert.equal(d.querySelectorAll('.area-label').length,49);
+  assert.match($('map-svg').textContent,/©Chinaar Tech/);
+  assert.match($('map-svg').textContent,/Kashmir Ke Waris/);
+  change('value-ajk-8191414','0');change('value-ajk-8191217','-5');
+  assert.match($('summary').textContent,/2 with data/);
+  change('aggregation','average');change('decimals','1');
+  assert.match($('map-svg').textContent,/AVERAGE OF 2 VALUES/);
+  assert.match($('map-svg').textContent,/-2.5/);
+  change('aggregation','sum');change('decimals','0');
+  $('csv-text').value='name,value\nPoonch,22';$('csv-apply').click();assert.match($('import-report').textContent,/Nothing imported/);
+  $('csv-text').value='name,region,value\nMuzaffarabad,ajk,100\nAnantnag,kashmir,55';$('csv-apply').click();assert.match($('import-report').textContent,/Imported 2/);
+  change('area','ajk');assert.equal(d.querySelectorAll('.map-area').length,10);
+  change('view','provinces');assert.equal(d.querySelectorAll('.map-area').length,3);assert.match($('summary').textContent,/0 with data/);
+  assert.equal(d.querySelectorAll('.area-label').length,3);
+  $('loc').checked=true;$('loc').dispatchEvent(new w.Event('change'));assert.match($('map-svg').textContent,/LoC/);
+  change('title','<script>alert(1)</script>');assert.equal($('map-svg').querySelectorAll('script').length,0);
+  $('add-slide').click();assert.equal(d.querySelectorAll('.snapshot').length,1);
+  change('view','districts');assert.match($('summary').textContent,/3 with data/);
+  $('export-svg').click();const svg=await readBlob(w,exportBlob);assert.match(svg,/OpenStreetMap/);assert.match(svg,/&lt;script&gt;/);
+  const parsed=new w.DOMParser().parseFromString(svg,'image/svg+xml');assert.equal(parsed.querySelectorAll('parsererror').length,0);
+  $('export-geojson').click();const geo=JSON.parse(await readBlob(w,exportBlob));assert.equal(geo.features.length,50);assert.equal(geo.features.find(f=>f.id==='ajk-8191414').properties.value,100);
+  $('save-project').click();const saved=JSON.parse(await readBlob(w,exportBlob));assert.equal(saved.slides.length,1);assert.equal(saved.state.values.districts['ajk-8191414'],100);
+  $('clear').click();assert.match($('summary').textContent,/0 with data/);$('undo').click();assert.match($('summary').textContent,/3 with data/);
+  const file={size:100,text:async()=>JSON.stringify(saved)};Object.defineProperty($('project-file'),'files',{value:[file],configurable:true});await $('project-file').onchange({target:$('project-file')});assert.match($('notice').textContent,/Project opened/);
+  saved.state.palette='invalid';Object.defineProperty($('project-file'),'files',{value:[{size:100,text:async()=>JSON.stringify(saved)}],configurable:true});await $('project-file').onchange({target:$('project-file')});assert.match($('notice').textContent,/Could not open project/);
+  assert.equal(errors.length,0,String(errors));console.log('PASS:',url,'SVG rendering, edits, import validation, all views, LoC, snapshots, exports, undo and project validation');
+  dom.window.close();localData={};
+ }
+})().catch(e=>{console.error(e);process.exitCode=1});
