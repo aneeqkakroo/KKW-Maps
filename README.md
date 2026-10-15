@@ -62,6 +62,26 @@ Import the repository into Vercel. `vercel.json` runs `npm run build` and publis
 
 ## Using the studio
 
+### Public boundary URLs
+
+The static build publishes generated GeoJSON under `https://maps.kashmirkewaris.org/geojson/`. The directory index lists all downloads; `geojson/index.json` provides machine-readable names, URLs and feature counts. Public data responses allow cross-origin GET requests and use a five-minute cache lifetime. No accounts or API keys are required. Raw source caches are not published.
+
+Main files:
+
+- `/geojson/jammu_kashmir_districts.geojson` — all 49 available districts
+- `/geojson/jammu_kashmir_six_regions.geojson` — six regions
+- `/geojson/jammu_kashmir_provinces.geojson` — three province groupings
+- `/geojson/jammu_kashmir_loc.geojson` — Line of Control
+- `/geojson/districts_kashmir.geojson` — Kashmir districts (other region files follow the same naming)
+
+```javascript
+const response = await fetch('https://maps.kashmirkewaris.org/geojson/jammu_kashmir_districts.geojson');
+if (!response.ok) throw new Error(`Boundary download failed: ${response.status}`);
+const geojson = await response.json();
+```
+
+Retain OpenStreetMap contributor attribution and ODbL obligations when reusing the data. Province and gap collections retain their source limitations; an empty FeatureCollection is not missing HTTP content.
+
 Choose a view, enter values or import CSV, then use Style and Layers to customise the map. CSV requires `id,value` or `name,region,value`; download the template to avoid ambiguous names. Imports reject invalid/ambiguous rows without partially applying data. Blank means no data; zero and negative numbers are supported. Sum/average uses entered values in visible areas; average ignores blanks and is not weighted. Values are independent across views.
 
 All area labels appear by default, using connector lines for crowded locations. Watermark visibility is saved with projects and snapshots and applied to PNG/SVG exports. Older projects default to showing the watermark. The Chinaar Tech footer and OpenStreetMap data credit are independent credits.
