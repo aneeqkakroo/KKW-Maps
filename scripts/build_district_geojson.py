@@ -119,13 +119,6 @@ def build(output):
     output_json(out / 'jammu_kashmir_districts.geojson', districts, meta)
     output_json(out / 'jammu_kashmir_district_gaps.geojson', gaps, meta)
     (out / 'district_coverage_report.json').write_text(json.dumps(meta, indent=2, ensure_ascii=False), encoding='utf-8')
-    # A script bundle can load through file://, where browsers block fetch(JSON).
-    preview_data = {name: json.loads((out / f'{name}.geojson').read_text(encoding='utf-8'))
-                    for name in ('jammu_kashmir_districts', 'jammu_kashmir_six_regions',
-                                 'jammu_kashmir_district_gaps')}
-    (out / 'district_preview_data.js').write_text(
-        'window.DISTRICT_PREVIEW_DATA=' + json.dumps(preview_data, ensure_ascii=True,
-                                                    separators=(',', ':')) + ';\n', encoding='utf-8')
     print(json.dumps(report, indent=2))
     from build_map_preview import build as build_preview
     build_preview(out)

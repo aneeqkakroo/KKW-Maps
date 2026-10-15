@@ -1,11 +1,13 @@
 """Generate a portable, single-file map and its derived GeoJSON layers."""
 import json
+from urllib.parse import quote
 from pathlib import Path
 from shapely.geometry import shape, LineString, Polygon
 from shapely.ops import unary_union, linemerge
 from build_kashmir_geojson import feature, output_json, to_polygon
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parents[1]
+EDITOR = ROOT / "src/editor"
 
 
 def fill_province_seams(geometries, excluded):
@@ -49,22 +51,23 @@ def build(output='output'):
          ['Kashmir Division (Valley approximation)'] + [f['properties']['name'] for f in north]),
         ('jammu_province', 'Jammu Province', [masks['jammu']] + [shape(f['geometry']) for f in rest],
          ['Jammu Division'] + [f['properties']['name'] for f in rest]),
-        ('frontier_province', 'Frontier Province', [masks['ladakh'], masks['gb']], ['Ladakh', 'Gilgit-Baltistan']),
+        ('frontier_province', 'Frontier Province', [masks['ladakh'], masks['gb'], masks['aksai_chin']], ['Ladakh', 'Gilgit-Baltistan', 'Aksai Chin']),
     ]
     province_meta = {'source': 'OpenStreetMap; user-defined aggregation', 'licence': 'ODbL 1.0',
                      'notes': ['Requested pre-partition grouping using modern boundaries, not a verified historical survey.',
                                'Kashmir Division approximates Kashmir Valley.',
                                'Frontier inherits the existing GB/Shaksgam and Ladakh/Siachen display grouping, not present control.',
-                               'Small enclosed source seams are filled in this province display layer only; other provinces and Aksai Chin are protected.',
-                               'Aksai Chin and any remaining non-enclosed coverage gaps are unassigned.']}
+                               'Aksai Chin is included in Frontier Province by the requested map grouping.',
+                               'Small enclosed source seams are filled in this province display layer only; other provinces are protected.',
+                               'Any remaining non-enclosed coverage gaps are unassigned.']}
     raw_provinces = [to_polygon(unary_union(geoms), i) for i, _, geoms, _ in definitions]
-    repaired, repairs = fill_province_seams(raw_provinces, masks['aksai_chin'])
+    repaired, repairs = fill_province_seams(raw_provinces, Polygon())
     provinces = [feature(i, name, geom, members=members, feature_kind='province', seam_repair=repair)
                  for (i, name, _, members), geom, repair in zip(definitions, repaired, repairs)]
     output_json(out / 'jammu_kashmir_provinces.geojson', provinces, province_meta)
     unassigned = unary_union(list(masks.values())).difference(unary_union([shape(f['geometry']) for f in provinces]))
     output_json(out / 'jammu_kashmir_province_unassigned.geojson',
-                [feature('unassigned', 'Not assigned to a province', to_polygon(unassigned, 'unassigned'))], province_meta)
+                [] if unassigned.is_empty else [feature('unassigned', 'Not assigned to a province', to_polygon(unassigned, 'unassigned'))], province_meta)
 
     raw = json.loads((out / 'source-cache/loc-relation.json').read_text(encoding='utf-8'))
     objects = {(e['type'], e['id']): e for e in raw['elements']}
@@ -86,25 +89,31 @@ def build(output='output'):
                  'relation_version': relation.get('version'), 'relation_timestamp': relation.get('timestamp'),
                  'notes': ['Source-mapped demarcation, not a surveyed or live military-control boundary.',
                            'Source discontinuities are retained; AGPL and India–China LAC are not added.']})
-    bundle = {'regions': regions, 'districts': districts, 'gaps': read('jammu_kashmir_district_gaps'),
+    shaksgam = next(f for f in read('jammu_kashmir_special_overlays')['features'] if f['id'] == 'shaksgam')
+    context = {'type': 'FeatureCollection', 'features': [
+        feature('context-aksai-chin', 'Aksai Chin', masks['aksai_chin'], region_id='aksai_chin', feature_kind='geographic_area'),
+        feature('context-shaksgam', 'Shaksgam Valley', shape(shaksgam['geometry']), region_id='gb', feature_kind='geographic_area')],
+        'metadata': {'note': 'Named geographic areas for district-view context, not administrative districts.'}}
+    bundle = {'regions': regions, 'districts': districts, 'context': context, 'gaps': read('jammu_kashmir_district_gaps'),
               'provinces': read('jammu_kashmir_provinces'), 'unassigned': read('jammu_kashmir_province_unassigned'),
               'loc': read('jammu_kashmir_loc')}
-    template = (ROOT / 'map.template.html').read_text(encoding='utf-8')
+    template = (EDITOR / 'map.template.html').read_text(encoding='utf-8')
     for collection in bundle.values():
         for item in collection['features']:
             geom = shape(item['geometry'])
             if geom.geom_type in ('Polygon', 'MultiPolygon'):
                 item['properties']['label_point'] = list(geom.representative_point().coords)[0]
     replacements = {
-        '/* LEAFLET_CSS */': (ROOT / 'vendor/leaflet/leaflet.css').read_text(encoding='utf-8'),
-        '/* LEAFLET_JS */': (ROOT / 'vendor/leaflet/leaflet.js').read_text(encoding='utf-8'),
+        'CHINAR_FAVICON': 'data:image/svg+xml,' + quote((ROOT / 'assets/chinar.svg').read_text(encoding='utf-8'), safe=''),
         '/* MAP_DATA */': 'window.MAP_DATA=' + json.dumps(bundle, ensure_ascii=True, separators=(',', ':')).replace('<', '\\u003c') + ';',
     }
     for token, value in replacements.items():
         template = template.replace(token, value)
     for token, filename in [('/* EDITOR_CSS */', 'map-editor.css'), ('/* EDITOR_CORE */', 'map-editor-core.js'), ('/* EDITOR_JS */', 'map-editor.js')]:
-        template = template.replace(token, (ROOT / filename).read_text(encoding='utf-8'))
+        template = template.replace(token, (EDITOR / filename).read_text(encoding='utf-8'))
     (ROOT / 'districts.html').write_text(template, encoding='utf-8')
+    from build_thumbnails import build as build_thumbnails
+    build_thumbnails(out, ROOT / 'assets')
     print('Saved standalone districts.html')
 
 

@@ -1,5 +1,5 @@
 const fs=require('node:fs'),assert=require('node:assert/strict'),path=require('node:path');
-const {JSDOM}=require('./.qa/node_modules/jsdom');
+const {JSDOM}=require('jsdom');
 const landing=new JSDOM(fs.readFileSync('dist/index.html','utf8'),{url:'https://example.test/',runScripts:'dangerously'});
 const doc=landing.window.document;
 for(const el of doc.querySelectorAll('[href],[src]')){

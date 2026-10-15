@@ -1,6 +1,6 @@
 const assert=require('node:assert/strict');
 const fs=require('node:fs');
-const C=require('./map-editor-core.js');
+const C=require('../src/editor/map-editor-core.js');
 const districts=JSON.parse(fs.readFileSync('output/jammu_kashmir_districts.geojson','utf8')).features;
 assert.equal(C.number(''),null);assert.equal(C.number('0'),0);assert.equal(C.number('-2.5'),-2.5);
 for(const v of ['NaN','Infinity','3cats','1,234'])assert.throws(()=>C.number(v));
@@ -18,7 +18,7 @@ assert.equal(C.color(0,{min:0,max:10},'Ocean',true),C.palettes.Ocean[2]);
 assert.deepEqual(C.parseCSV(C.csv([['a,b','x"y','0']])),[['a,b','x"y','0']]);
 console.log('PASS: CSV parsing, ambiguous names, aliases, duplicate rows, zero/negative/missing values, colour scales');
 
-const {JSDOM}=require('./.qa/node_modules/jsdom');
+const {JSDOM}=require('jsdom');
 const html=fs.readFileSync('districts.html','utf8');
 const errors=[];let exportBlob;let localData={};
 function open(url){return new JSDOM(html,{url,runScripts:'dangerously',pretendToBeVisual:true,beforeParse(w){
@@ -34,9 +34,14 @@ const readBlob=(w,blob)=>new Promise(resolve=>{const reader=new w.FileReader();r
   const dom=open(url),w=dom.window,d=w.document,$=id=>d.getElementById(id);
   const change=(id,v)=>{$(id).value=v;$(id).dispatchEvent(new w.Event('change'));};
   assert.equal(d.querySelectorAll('.map-area').length,49);assert.match($('summary').textContent,/0 with data/);
-  assert.equal(d.querySelectorAll('.area-label').length,49);
+  assert.equal(d.querySelectorAll('.area-label').length,51);
   assert.match($('map-svg').textContent,/©Chinaar Tech/);
   assert.match($('map-svg').textContent,/Kashmir Ke Waris/);
+  assert.match($('map-svg').textContent,/Aksai Chin/);
+  assert.match($('map-svg').textContent,/Shaksgam Valley/);
+  assert.equal(d.querySelectorAll('.map-watermark').length,1);
+  $('watermark').checked=false;$('watermark').dispatchEvent(new w.Event('change'));
+  assert.equal(d.querySelectorAll('.map-watermark').length,0);
   change('value-ajk-8191414','0');change('value-ajk-8191217','-5');
   assert.match($('summary').textContent,/2 with data/);
   change('aggregation','average');change('decimals','1');
@@ -54,8 +59,10 @@ const readBlob=(w,blob)=>new Promise(resolve=>{const reader=new w.FileReader();r
   change('view','districts');assert.match($('summary').textContent,/3 with data/);
   $('export-svg').click();const svg=await readBlob(w,exportBlob);assert.match(svg,/OpenStreetMap/);assert.match(svg,/&lt;script&gt;/);
   const parsed=new w.DOMParser().parseFromString(svg,'image/svg+xml');assert.equal(parsed.querySelectorAll('parsererror').length,0);
+  assert.equal(parsed.querySelectorAll('.map-watermark').length,0);
   $('export-geojson').click();const geo=JSON.parse(await readBlob(w,exportBlob));assert.equal(geo.features.length,50);assert.equal(geo.features.find(f=>f.id==='ajk-8191414').properties.value,100);
   $('save-project').click();const saved=JSON.parse(await readBlob(w,exportBlob));assert.equal(saved.slides.length,1);assert.equal(saved.state.values.districts['ajk-8191414'],100);
+  assert.equal(saved.state.watermark,false);
   $('clear').click();assert.match($('summary').textContent,/0 with data/);$('undo').click();assert.match($('summary').textContent,/3 with data/);
   const file={size:100,text:async()=>JSON.stringify(saved)};Object.defineProperty($('project-file'),'files',{value:[file],configurable:true});await $('project-file').onchange({target:$('project-file')});assert.match($('notice').textContent,/Project opened/);
   saved.state.palette='invalid';Object.defineProperty($('project-file'),'files',{value:[{size:100,text:async()=>JSON.stringify(saved)}],configurable:true});await $('project-file').onchange({target:$('project-file')});assert.match($('notice').textContent,/Could not open project/);

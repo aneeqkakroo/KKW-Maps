@@ -3,9 +3,9 @@
 const D=window.MAP_DATA,C=window.MapCore,$=id=>document.getElementById(id),NS='http://www.w3.org/2000/svg';
 const names={ajk:'Azad Jammu & Kashmir',gb:'Gilgit-Baltistan',jammu:'Jammu',kashmir:'Kashmir',ladakh:'Ladakh',aksai_chin:'Aksai Chin',kashmir_province:'Kashmir Province',jammu_province:'Jammu Province',frontier_province:'Frontier Province'};
 const modes={regions:'Region View',districts:'District View',provinces:'Pre Partition Regions'};
-const defaults={view:'districts',area:'',values:{regions:{},districts:{},provinces:{}},title:'Your map, your story',subtitle:'',source:'',author:'',palette:'Ocean',reverse:false,prefix:'',suffix:'',decimals:0,labels:'both',fontSize:11,emptyColor:'#e8edf2',background:'#ffffff',borderWidth:.7,showLegend:true,showTotal:true,aggregation:'sum',loc:false,showGaps:true};
+const defaults={view:'districts',area:'',values:{regions:{},districts:{},provinces:{}},title:'Your map, your story',subtitle:'',source:'',author:'',palette:'Ocean',reverse:false,prefix:'',suffix:'',decimals:0,labels:'both',fontSize:11,emptyColor:'#e8edf2',background:'#ffffff',borderWidth:.7,showLegend:true,showTotal:true,aggregation:'sum',loc:false,showGaps:true,watermark:true};
 const clone=x=>JSON.parse(JSON.stringify(x));let state=clone(defaults),slides=[],history=[],selected='',zoom=1,saveTimer;
-const fields={aggregation:'aggregation',title:'title',subtitle:'subtitle',source:'source',author:'author',prefix:'prefix',suffix:'suffix',decimals:'decimals',labels:'labels','font-size':'fontSize','empty-color':'emptyColor',background:'background','border-width':'borderWidth',reverse:'reverse','show-legend':'showLegend','show-total':'showTotal',loc:'loc','show-gaps':'showGaps'};
+const fields={watermark:'watermark',aggregation:'aggregation',title:'title',subtitle:'subtitle',source:'source',author:'author',prefix:'prefix',suffix:'suffix',decimals:'decimals',labels:'labels','font-size':'fontSize','empty-color':'emptyColor',background:'background','border-width':'borderWidth',reverse:'reverse','show-legend':'showLegend','show-total':'showTotal',loc:'loc','show-gaps':'showGaps'};
 function notify(s){$('notice').textContent=s;}
 function checkpoint(){history.push(JSON.stringify({state,slides}));if(history.length>30)history.shift();$('undo').disabled=false;}
 function persist(){clearTimeout(saveTimer);saveTimer=setTimeout(()=>{try{localStorage.setItem('kashmir-map-studio-v1',JSON.stringify({type:'kashmir-map-studio',version:1,state,slides}));}catch(e){notify('Browser storage unavailable. Use Save project to keep your work.');}},300);}
@@ -13,6 +13,7 @@ function validateState(input){
  if(!input||typeof input!=='object'||!Object.hasOwn(modes,input.view))throw Error('Invalid map view');const s=clone(defaults);s.view=input.view;
  const areaIDs=(s.view==='provinces'?D.provinces:D.regions).features.map(f=>f.id);if(input.area&&!areaIDs.includes(input.area))throw Error('Unknown area filter');s.area=input.area||'';
  if(input.aggregation!==undefined&&!['sum','average'].includes(input.aggregation))throw Error('Invalid summary calculation');s.aggregation=input.aggregation||'sum';
+ if(input.watermark!==undefined&&typeof input.watermark!=='boolean')throw Error('Invalid watermark option');s.watermark=input.watermark??true;
  for(const key of ['title','subtitle','source','author','prefix','suffix']){if(typeof input[key]!=='string'||input[key].length>200)throw Error('Invalid '+key);s[key]=input[key];}
  if(!Object.hasOwn(C.palettes,input.palette))throw Error('Unknown palette');s.palette=input.palette;
  if(!['both','names','values','none'].includes(input.labels))throw Error('Unknown label style');s.labels=input.labels;
@@ -56,9 +57,11 @@ function renderMap(){
  }
  if(state.loc){for(const f of D.loc.features){add(mapGroup,'path',{d:geometryPath(f.geometry,point),fill:'none',stroke:'white','stroke-width':5,'pointer-events':'none'});add(mapGroup,'path',{d:geometryPath(f.geometry,point),fill:'none',stroke:'#b12b4d','stroke-width':2.3,'stroke-dasharray':'7 5','pointer-events':'none'});}add(svg,'text',{x:650,y:128,'font-size':11,fill:'#b12b4d'},'— — LoC · India–Pakistan (approximate)');}
  const placed=[],labels=[];
- if(state.labels!=='none')for(const f of [...shown].sort((a,b)=>Number(value(b)!==null)-Number(value(a)!==null))){
+ const contextLabels=state.view==='districts'?D.context.features.filter(f=>!state.area||f.properties.region_id===state.area):[];
+ if(state.labels!=='none')for(const f of [...shown,...contextLabels].sort((a,b)=>Number(value(b)!==null)-Number(value(a)!==null))){
   const p=f.properties.label_point;if(!p)continue;const [px,py]=point(p),v=value(f);
-  const lines=[];if(state.labels!=='values')lines.push(title(f));if(state.labels!=='names')lines.push(format(v));
+  const isContext=f.properties.feature_kind==='geographic_area';
+  const lines=[];if(isContext||state.labels!=='values')lines.push(title(f));if(!isContext&&state.labels!=='names')lines.push(format(v));
   const width=Math.max(...lines.map(t=>t.length))*state.fontSize*.62+10,height=lines.length*(state.fontSize+3)+4;
   const rect=(x,y)=>({left:x-width/2,right:x+width/2,top:y-state.fontSize-2,bottom:y-state.fontSize-2+height});
   const fits=r=>r.left>=38&&r.right<=962&&r.top>=148&&r.bottom<=742&&!placed.some(o=>r.left<o.right&&r.right>o.left&&r.top<o.bottom&&r.bottom>o.top);
@@ -80,8 +83,8 @@ function renderMap(){
   lines.forEach((line,i)=>add(label,'tspan',{x,dy:i?state.fontSize+3:0,'font-weight':(state.labels==='values'||i>0)?700:400},line));
  }
  // Branding sits over the map at low opacity and is embedded in image exports.
- const watermark=add(svg,'g',{'pointer-events':'none','aria-hidden':'true'});
- for(let y=205;y<730;y+=150)for(let x=160;x<970;x+=310)add(watermark,'text',{x,y,'text-anchor':'middle','font-size':18,'font-weight':600,fill:'#294d65',opacity:.07,transform:'rotate(-18 '+x+' '+y+')'},'Kashmir Ke Waris');
+ if(state.watermark){const watermark=add(svg,'g',{'pointer-events':'none','aria-hidden':'true',class:'map-watermark'});
+ for(let y=205;y<730;y+=150)for(let x=160;x<970;x+=310)add(watermark,'text',{x,y,'text-anchor':'middle','font-size':18,'font-weight':600,fill:'#294d65',opacity:.07,transform:'rotate(-18 '+x+' '+y+')'},'Kashmir Ke Waris');}
  if(state.showLegend){
   const stops=state.reverse?[...C.palettes[state.palette]].reverse():C.palettes[state.palette];const grad=add(defs,'linearGradient',{id:'data-gradient'});stops.forEach((c,i)=>add(grad,'stop',{offset:i*50+'%','stop-color':c}));
   if(scale.count){add(svg,'rect',{x:50,y:110,width:260,height:10,rx:5,fill:'url(#data-gradient)'});add(svg,'text',{x:50,y:139,'font-size':11,fill:'#566b7a'},format(scale.min));add(svg,'text',{x:310,y:139,'text-anchor':'end','font-size':11,fill:'#566b7a'},format(scale.max));}else add(svg,'text',{x:50,y:125,'font-size':12,fill:'#768694'},'Add values to colour the map');

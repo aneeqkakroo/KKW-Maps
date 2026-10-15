@@ -2,5 +2,11 @@
   "name": "kashmir-ke-waris",
   "version": "1.0.0",
   "private": true,
-  "scripts": {"build": "node build-site.cjs", "test": "node test-map-editor.cjs"}
+  "scripts": {
+    "build": "node scripts/build-site.cjs",
+    "test": "node tests/test-map-editor.cjs && node tests/test-landing.cjs"
+  },
+  "devDependencies": {
+    "jsdom": "^29.1.1"
+  }
 }
