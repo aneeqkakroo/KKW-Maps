@@ -3,7 +3,7 @@
 const D=window.MAP_DATA,C=window.MapCore,$=id=>document.getElementById(id),NS='http://www.w3.org/2000/svg';
 const names={jk:'Jammu & Kashmir',ajk:'Azad Jammu & Kashmir',gb:'Gilgit-Baltistan',jammu:'Jammu',kashmir:'Kashmir',ladakh:'Ladakh',aksai_chin:'Aksai Chin',kashmir_province:'Kashmir Province',jammu_province:'Jammu Province',frontier_province:'Frontier Province'};
 const modes={regions:'Region View',districts:'District View',provinces:'Pre Partition Regions'};
-const defaults={view:'districts',area:'',values:{regions:{},districts:{},provinces:{}},title:'Your map, your story',subtitle:'',source:'',author:'',palette:'Ocean',reverse:false,prefix:'',suffix:'',decimals:0,labels:'both',fontSize:11,emptyColor:'#e8edf2',background:'#ffffff',borderWidth:.7,showLegend:true,showTotal:true,aggregation:'sum',loc:false,showGaps:true,watermark:true};
+const defaults={labelPositions:{},view:'districts',area:'',values:{regions:{},districts:{},provinces:{}},title:'Your map, your story',subtitle:'',source:'',author:'',palette:'Ocean',reverse:false,prefix:'',suffix:'',decimals:0,labels:'both',fontSize:11,emptyColor:'#e8edf2',background:'#ffffff',borderWidth:.7,showLegend:true,showTotal:true,aggregation:'sum',loc:false,showGaps:true,watermark:true};
 const clone=x=>JSON.parse(JSON.stringify(x));let state=clone(defaults),slides=[],history=[],selected='',zoom=1,saveTimer;
 const fields={watermark:'watermark',aggregation:'aggregation',title:'title',subtitle:'subtitle',source:'source',author:'author',prefix:'prefix',suffix:'suffix',decimals:'decimals',labels:'labels','font-size':'fontSize','empty-color':'emptyColor',background:'background','border-width':'borderWidth',reverse:'reverse','show-legend':'showLegend','show-total':'showTotal',loc:'loc','show-gaps':'showGaps'};
 function notify(s){$('notice').textContent=s;}
@@ -21,6 +21,20 @@ function validateState(input){
  for(const [k,min,max] of [['fontSize',8,20],['borderWidth',0,2],['decimals',0,2]]){if(typeof input[k]!=='number'||!Number.isFinite(input[k])||input[k]<min||input[k]>max||(k==='decimals'&&!Number.isInteger(input[k])))throw Error('Invalid '+k);s[k]=input[k];}
  for(const k of ['reverse','showLegend','showTotal','loc','showGaps']){if(typeof input[k]!=='boolean')throw Error('Invalid '+k);s[k]=input[k];}
  for(const mode of Object.keys(modes)){const vals=input.values?.[mode];if(!vals||typeof vals!=='object'||Array.isArray(vals))throw Error('Invalid values');const ids=new Set(D[mode].features.map(f=>f.id));for(const [id,v] of Object.entries(vals)){if(!ids.has(id)||!(v===null||(typeof v==='number'&&Number.isFinite(v))))throw Error('Unknown area or invalid value');s.values[mode][id]=v;}}
+ if(input.labelPositions!==undefined){
+  if(!input.labelPositions||typeof input.labelPositions!=='object'||Array.isArray(input.labelPositions))throw Error('Invalid label positions');
+  for(const [scope,positions] of Object.entries(input.labelPositions)){
+   const [mode,area,...extra]=scope.split(':');
+   if(!Object.hasOwn(modes,mode)||extra.length||area===undefined||!(area===''||(mode==='provinces'?D.provinces.features:D.regions.features).some(f=>f.id===area)||(mode!=='provinces'&&area==='jk')))throw Error('Invalid label scope');
+   if(!positions||typeof positions!=='object'||Array.isArray(positions))throw Error('Invalid label positions');
+   const ids=new Set([...D[mode].features,...(mode==='districts'?D.context.features:[])].map(f=>f.id));
+   s.labelPositions[scope]={};
+   for(const [id,p] of Object.entries(positions)){
+    if(!ids.has(id)||!Array.isArray(p)||p.length!==2||!p.every(Number.isFinite)||p[0]<38||p[0]>962||p[1]<148||p[1]>742)throw Error('Invalid label position');
+    s.labelPositions[scope][id]=[...p];
+   }
+  }
+ }
  return s;
 }
 function project(raw){if(raw.type!=='kashmir-map-studio'||raw.version!==1)throw Error('Not a Map Studio project');const next=validateState(raw.state);if(!Array.isArray(raw.slides)||raw.slides.length>50)throw Error('Invalid snapshots');return {state:next,slides:raw.slides.map(slide=>({name:String(slide.name).slice(0,90),state:validateState(slide.state)}))};}
@@ -35,6 +49,41 @@ function add(parent,tag,attrs,textValue){const n=el(tag,attrs,textValue);parent.
 const projected=([lon,lat])=>[lon,Math.log(Math.tan(Math.PI/4+lat*Math.PI/360))*180/Math.PI];
 function walk(coords,fn){if(typeof coords[0]==='number')fn(coords);else coords.forEach(c=>walk(c,fn));}
 function geometryPath(geom,point){const line=c=>c.map((p,i)=>(i?'L':'M')+point(p).map(n=>n.toFixed(2)).join(',')).join('');if(geom.type==='Polygon')return geom.coordinates.map(r=>line(r)+'Z').join('');if(geom.type==='MultiPolygon')return geom.coordinates.map(p=>p.map(r=>line(r)+'Z').join('')).join('');if(geom.type==='LineString')return line(geom.coordinates);if(geom.type==='MultiLineString')return geom.coordinates.map(line).join('');return '';}
+function labelScope(){return state.view+':'+state.area;}
+function savedLabel(id){return state.labelPositions[labelScope()]?.[id];}
+function clampLabel(x,y,width,height){return [Math.max(38+width/2,Math.min(962-width/2,x)),Math.max(150+state.fontSize,Math.min(740+state.fontSize-height,y))];}
+function moveLabel(id,x,y){
+ checkpoint();(state.labelPositions[labelScope()]??={})[id]=[x,y];renderMap();persist();notify('Label moved. Undo or Reset label positions to restore the layout.');
+}
+function enableLabelDrag(label,l,leader,dot){
+ let drag;
+ const svg=$('map-svg');
+ const position=e=>{const p=svg.createSVGPoint();p.x=e.clientX;p.y=e.clientY;return p.matrixTransform(svg.getScreenCTM().inverse());};
+ const paint=(x,y)=>{
+  label.setAttribute('x',x);label.setAttribute('y',y);label.querySelectorAll('tspan').forEach(t=>t.setAttribute('x',x));
+  leader.setAttribute('d','M'+l.px+','+l.py+'L'+x+','+(y-state.fontSize/2));
+  const visibility=Math.hypot(x-l.px,y-l.py)>12?'visible':'hidden';leader.setAttribute('visibility',visibility);dot.setAttribute('visibility',visibility);
+ };
+ label.addEventListener('pointerdown',e=>{
+  if(e.button!==0||drag)return;e.preventDefault();e.stopPropagation();const p=position(e);
+  drag={id:e.pointerId,start:p,x:l.x,y:l.y};label.setPointerCapture(e.pointerId);label.style.cursor='grabbing';
+ });
+ label.addEventListener('pointermove',e=>{
+  if(!drag||drag.id!==e.pointerId)return;const p=position(e);
+  [drag.x,drag.y]=clampLabel(l.x+p.x-drag.start.x,l.y+p.y-drag.start.y,l.width,l.height);paint(drag.x,drag.y);
+ });
+ const finish=(e,cancel=false)=>{
+  if(!drag||drag.id!==e.pointerId)return;const end=drag;drag=null;label.style.cursor='grab';
+  if(label.hasPointerCapture(e.pointerId))label.releasePointerCapture(e.pointerId);
+  if(!cancel&&(Math.abs(end.x-l.x)>.1||Math.abs(end.y-l.y)>.1))moveLabel(l.f.id,end.x,end.y);else paint(l.x,l.y);
+ };
+ label.addEventListener('pointerup',e=>finish(e));label.addEventListener('pointercancel',e=>finish(e,true));label.addEventListener('lostpointercapture',e=>finish(e,true));
+ label.addEventListener('keydown',e=>{
+  const delta={ArrowLeft:[-1,0],ArrowRight:[1,0],ArrowUp:[0,-1],ArrowDown:[0,1]}[e.key];if(!delta)return;
+  e.preventDefault();const step=e.shiftKey?10:2;const [x,y]=clampLabel(l.x+delta[0]*step,l.y+delta[1]*step,l.width,l.height);moveLabel(l.f.id,x,y);
+  [...svg.querySelectorAll('.area-label')].find(n=>n.dataset.labelId===l.f.id)?.focus();
+ });
+}
 let lastScale;
 function renderMap(){
  const svg=$('map-svg');svg.replaceChildren();svg.setAttribute('style','font-family:Arial,sans-serif');
@@ -60,7 +109,7 @@ function renderMap(){
  if(state.loc){for(const f of D.loc.features){add(mapGroup,'path',{d:geometryPath(f.geometry,point),fill:'none',stroke:'white','stroke-width':5,'pointer-events':'none'});add(mapGroup,'path',{d:geometryPath(f.geometry,point),fill:'none',stroke:'#b12b4d','stroke-width':2.3,'stroke-dasharray':'7 5','pointer-events':'none'});}add(svg,'text',{x:650,y:128,'font-size':11,fill:'#b12b4d'},'— — LoC · India–Pakistan (approximate)');}
  const placed=[],labels=[];
  const contextLabels=state.view==='districts'?D.context.features.filter(f=>inArea(f.properties.region_id)):[];
- if(state.labels!=='none')for(const f of [...shown,...contextLabels].sort((a,b)=>Number(value(b)!==null)-Number(value(a)!==null))){
+ if(state.labels!=='none')for(const f of [...shown,...contextLabels].sort((a,b)=>Number(!!savedLabel(b.id))-Number(!!savedLabel(a.id))||Number(value(b)!==null)-Number(value(a)!==null))){
   const p=f.properties.label_point;if(!p)continue;const [px,py]=point(p),v=value(f);
   const isContext=f.properties.feature_kind==='geographic_area';
   const lines=[];if(isContext||state.labels!=='values')lines.push(title(f));if(!isContext&&state.labels!=='names')lines.push(format(v));
@@ -68,21 +117,26 @@ function renderMap(){
   const rect=(x,y)=>({left:x-width/2,right:x+width/2,top:y-state.fontSize-2,bottom:y-state.fontSize-2+height});
   const fits=r=>r.left>=38&&r.right<=962&&r.top>=148&&r.bottom<=742&&!placed.some(o=>r.left<o.right&&r.right>o.left&&r.top<o.bottom&&r.bottom>o.top);
   let x=px,y=py,best=Infinity;
-  if(!fits(rect(x,y))){
+  const manual=savedLabel(f.id);
+  if(manual)[x,y]=clampLabel(...manual,width,height);
+  if(!manual&&!fits(rect(x,y))){
    for(let cy=160;cy<=730-height+state.fontSize;cy+=6)for(let cx=40+width/2;cx<=960-width/2;cx+=8){
     const cost=(cx-px)**2+(cy-py)**2;
     if(cost<best&&fits(rect(cx,cy))){best=cost;x=cx;y=cy;}
    }
   }
-  placed.push(rect(x,y));labels.push({f,x,y,px,py,lines});
+  placed.push(rect(x,y));labels.push({f,x,y,px,py,lines,width,height});
  }
- for(const l of labels)if(Math.hypot(l.x-l.px,l.y-l.py)>12){
-  add(mapGroup,'path',{d:'M'+l.px+','+l.py+'L'+l.x+','+(l.y-state.fontSize/2),fill:'none',stroke:'#758a99','stroke-width':.8,'pointer-events':'none',class:'label-leader'});
-  add(mapGroup,'circle',{cx:l.px,cy:l.py,r:1.8,fill:'#758a99','pointer-events':'none'});
+ for(const l of labels){
+  const visibility=Math.hypot(l.x-l.px,l.y-l.py)>12?'visible':'hidden';
+  l.leader=add(mapGroup,'path',{d:'M'+l.px+','+l.py+'L'+l.x+','+(l.y-state.fontSize/2),fill:'none',stroke:'#758a99','stroke-width':.8,'pointer-events':'none',class:'label-leader',visibility});
+  l.dot=add(mapGroup,'circle',{cx:l.px,cy:l.py,r:1.8,fill:'#758a99','pointer-events':'none',visibility});
  }
- for(const {f,x,y,lines} of labels){
-  const label=add(mapGroup,'text',{x,y,'text-anchor':'middle','font-size':state.fontSize,fill:'#263d50',stroke:'#ffffff','stroke-width':2.5,'stroke-opacity':.9,'paint-order':'stroke','stroke-linejoin':'round','pointer-events':'none',class:'area-label','data-label-id':f.id});
+ for(const l of labels){
+  const {f,x,y,lines}=l;
+  const label=add(mapGroup,'text',{x,y,'text-anchor':'middle','font-size':state.fontSize,fill:'#263d50',stroke:'#ffffff','stroke-width':2.5,'stroke-opacity':.9,'paint-order':'stroke','stroke-linejoin':'round','pointer-events':'all',class:'area-label','data-label-id':f.id,tabindex:0,role:'button','aria-label':'Move '+title(f)+' label. Drag or use arrow keys.',style:'cursor:grab;touch-action:none;user-select:none'});
   lines.forEach((line,i)=>add(label,'tspan',{x,dy:i?state.fontSize+3:0,'font-weight':(state.labels==='values'||i>0)?700:400},line));
+  enableLabelDrag(label,l,l.leader,l.dot);
  }
  // Branding sits over the map at low opacity and is embedded in image exports.
  if(state.watermark){const watermark=add(svg,'g',{'pointer-events':'none','aria-hidden':'true',class:'map-watermark'});
@@ -111,10 +165,11 @@ function sync(){
 function download(name,content,type){const url=URL.createObjectURL(content instanceof Blob?content:new Blob([content],{type}));const a=document.createElement('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
 function applyCSV(text){try{const result=C.importCSV(text,D[state.view].features);if(result.issues.length){$('import-report').textContent='Nothing imported. Fix these rows and try again:\n'+result.issues.join('\n');return;}checkpoint();Object.assign(state.values[state.view],result.updates);renderRows();renderMap();persist();$('import-report').textContent='Imported '+Object.keys(result.updates).length+' values. Other values were kept.';notify('CSV imported.');}catch(e){$('import-report').textContent=e.message;}}
 function csvRows(template=false){return [['id','name','region','value'],...features().map(f=>[f.id,title(f),f.properties.region_id||'',template?'':value(f)])];}
-function svgString(){const copy=$('map-svg').cloneNode(true);copy.setAttribute('xmlns',NS);copy.setAttribute('width','1000');copy.setAttribute('height','900');copy.querySelectorAll('.map-area').forEach(p=>{p.setAttribute('stroke','#8497a6');p.setAttribute('stroke-width',state.borderWidth);p.removeAttribute('tabindex');p.removeAttribute('role');});return new XMLSerializer().serializeToString(copy);}
+function svgString(){const copy=$('map-svg').cloneNode(true);copy.setAttribute('xmlns',NS);copy.setAttribute('width','1000');copy.setAttribute('height','900');copy.querySelectorAll('.area-label').forEach(p=>{p.removeAttribute('tabindex');p.removeAttribute('role');p.removeAttribute('aria-label');p.removeAttribute('style');p.setAttribute('pointer-events','none');});copy.querySelectorAll('.map-area').forEach(p=>{p.setAttribute('stroke','#8497a6');p.setAttribute('stroke-width',state.borderWidth);p.removeAttribute('tabindex');p.removeAttribute('role');});return new XMLSerializer().serializeToString(copy);}
 function renderSlides(){const list=$('slides-list');list.replaceChildren();slides.forEach((slide,i)=>{const box=document.createElement('div');box.className='snapshot';const name=document.createElement('p');name.textContent=(i+1)+'. '+slide.name;const restore=document.createElement('button');restore.textContent='Restore';restore.onclick=()=>{checkpoint();state=clone(slide.state);selected='';sync();persist();notify('Snapshot restored.');};const remove=document.createElement('button');remove.textContent='Remove';remove.onclick=()=>{checkpoint();slides.splice(i,1);renderSlides();persist();};box.append(name,restore,remove);list.append(box);});}
 for(const [name,stops] of Object.entries(C.palettes)){const b=document.createElement('button');b.className='palette';b.dataset.palette=name;const swatch=document.createElement('span');swatch.style.background='linear-gradient(90deg,'+stops.join(',')+')';b.append(swatch,document.createTextNode(name));b.onclick=()=>{checkpoint();state.palette=name;sync();persist();};$('palettes').append(b);}
 for(const [id,key] of Object.entries(fields))$(id).addEventListener('change',()=>{checkpoint();const node=$(id);state[key]=node.type==='checkbox'?node.checked:['fontSize','borderWidth','decimals'].includes(key)?Number(node.value):node.value;renderMap();persist();});
+$('reset-labels').onclick=()=>{checkpoint();delete state.labelPositions[labelScope()];renderMap();persist();notify('Automatic label positions restored for this view.');};
 $('view').onchange=()=>{checkpoint();state.view=$('view').value;state.area='';selected='';$('search').value='';sync();persist();notify('Values are stored separately for each map view.');};
 $('area').onchange=()=>{checkpoint();state.area=$('area').value;selected='';renderRows();renderMap();persist();};$('search').oninput=renderRows;
 $('undo').onclick=()=>{if(!history.length)return;const prior=JSON.parse(history.pop());state=prior.state;slides=prior.slides;selected='';sync();persist();notify('Last change undone.');};

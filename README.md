@@ -101,6 +101,8 @@ Retain OpenStreetMap contributor attribution and ODbL obligations when reusing t
 
 Choose a view, enter values or import CSV, then use Style and Layers to customise the map. CSV requires `id,value` or `name,region,value`; download the template to avoid ambiguous names. Imports reject invalid/ambiguous rows without partially applying data. Blank means no data; zero and negative numbers are supported. Sum/average uses entered values in visible areas; average ignores blanks and is not weighted. Values are independent across views.
 
+Drag area labels to arrange your map; connector lines follow their positions. Arrow keys move focused labels, with Shift for larger steps. Layers ? Reset label positions restores automatic placement for the current view and area filter. Positions persist in autosave, projects and snapshots, and appear in PNG/SVG exports.
+
 All area labels appear by default, using connector lines for crowded locations. Watermark visibility is saved with projects and snapshots and applied to PNG/SVG exports. Older projects default to showing the watermark. The Chinaar Tech footer and OpenStreetMap data credit are independent credits.
 
 Projects autosave locally when browser storage is available. Use Save project for a reliable backup or moving between devices. Nothing is uploaded. Clearing browser storage can erase local projects. Example values are demonstrations, not real statistics.

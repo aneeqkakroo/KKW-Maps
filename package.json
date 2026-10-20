@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "build": "node scripts/build-site.cjs",
-    "test": "node tests/test-map-editor.cjs && node tests/test-landing.cjs"
+    "test": "node tests/test-map-editor.cjs && node tests/test-landing.cjs && node tests/test-label-drag.cjs"
   },
   "devDependencies": {
     "jsdom": "^29.1.1"
