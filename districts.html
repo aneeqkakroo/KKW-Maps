@@ -38,7 +38,7 @@ root.MapCore={palettes,normalize,number,parseCSV,importCSV,csv,scale,color};if(t
 </script><script>(() => {
 'use strict';
 const D=window.MAP_DATA,C=window.MapCore,$=id=>document.getElementById(id),NS='http://www.w3.org/2000/svg';
-const names={ajk:'Azad Jammu & Kashmir',gb:'Gilgit-Baltistan',jammu:'Jammu',kashmir:'Kashmir',ladakh:'Ladakh',aksai_chin:'Aksai Chin',kashmir_province:'Kashmir Province',jammu_province:'Jammu Province',frontier_province:'Frontier Province'};
+const names={jk:'Jammu & Kashmir',ajk:'Azad Jammu & Kashmir',gb:'Gilgit-Baltistan',jammu:'Jammu',kashmir:'Kashmir',ladakh:'Ladakh',aksai_chin:'Aksai Chin',kashmir_province:'Kashmir Province',jammu_province:'Jammu Province',frontier_province:'Frontier Province'};
 const modes={regions:'Region View',districts:'District View',provinces:'Pre Partition Regions'};
 const defaults={view:'districts',area:'',values:{regions:{},districts:{},provinces:{}},title:'Your map, your story',subtitle:'',source:'',author:'',palette:'Ocean',reverse:false,prefix:'',suffix:'',decimals:0,labels:'both',fontSize:11,emptyColor:'#e8edf2',background:'#ffffff',borderWidth:.7,showLegend:true,showTotal:true,aggregation:'sum',loc:false,showGaps:true,watermark:true};
 const clone=x=>JSON.parse(JSON.stringify(x));let state=clone(defaults),slides=[],history=[],selected='',zoom=1,saveTimer;
@@ -48,7 +48,7 @@ function checkpoint(){history.push(JSON.stringify({state,slides}));if(history.le
 function persist(){clearTimeout(saveTimer);saveTimer=setTimeout(()=>{try{localStorage.setItem('kashmir-map-studio-v1',JSON.stringify({type:'kashmir-map-studio',version:1,state,slides}));}catch(e){notify('Browser storage unavailable. Use Save project to keep your work.');}},300);}
 function validateState(input){
  if(!input||typeof input!=='object'||!Object.hasOwn(modes,input.view))throw Error('Invalid map view');const s=clone(defaults);s.view=input.view;
- const areaIDs=(s.view==='provinces'?D.provinces:D.regions).features.map(f=>f.id);if(input.area&&!areaIDs.includes(input.area))throw Error('Unknown area filter');s.area=input.area||'';
+ const areaIDs=(s.view==='provinces'?D.provinces:D.regions).features.map(f=>f.id);if(input.area&&!areaIDs.includes(input.area)&&!(s.view!=='provinces'&&input.area==='jk'))throw Error('Unknown area filter');s.area=input.area||'';
  if(input.aggregation!==undefined&&!['sum','average'].includes(input.aggregation))throw Error('Invalid summary calculation');s.aggregation=input.aggregation||'sum';
  if(input.watermark!==undefined&&typeof input.watermark!=='boolean')throw Error('Invalid watermark option');s.watermark=input.watermark??true;
  for(const key of ['title','subtitle','source','author','prefix','suffix']){if(typeof input[key]!=='string'||input[key].length>200)throw Error('Invalid '+key);s[key]=input[key];}
@@ -62,7 +62,8 @@ function validateState(input){
 }
 function project(raw){if(raw.type!=='kashmir-map-studio'||raw.version!==1)throw Error('Not a Map Studio project');const next=validateState(raw.state);if(!Array.isArray(raw.slides)||raw.slides.length>50)throw Error('Invalid snapshots');return {state:next,slides:raw.slides.map(slide=>({name:String(slide.name).slice(0,90),state:validateState(slide.state)}))};}
 try{const raw=localStorage.getItem('kashmir-map-studio-v1');if(raw){const saved=project(JSON.parse(raw));state=saved.state;slides=saved.slides;notify('Restored your local project.');}}catch(e){notify('Start a new map, or open a saved project.');}
-function features(){return D[state.view].features.filter(f=>!state.area||(state.view==='districts'?f.properties.region_id:f.id)===state.area);}
+function inArea(id){return !state.area||id===state.area||(state.area==='jk'&&['jammu','kashmir'].includes(id));}
+function features(){return D[state.view].features.filter(f=>inArea(state.view==='districts'?f.properties.region_id:f.id));}
 function value(f){return state.values[state.view][f.id]??null;}
 function format(v){return v===null?'—':state.prefix+v.toLocaleString('en-GB',{minimumFractionDigits:state.decimals,maximumFractionDigits:state.decimals})+state.suffix;}
 function title(f){return names[f.id]||f.properties.name.replace(/ district$/i,'');}
@@ -79,13 +80,14 @@ function renderMap(){
  // Long titles remain bounded without injecting markup.
  if(state.title.length>55){svg.lastChild.setAttribute('textLength','900');svg.lastChild.setAttribute('lengthAdjust','spacingAndGlyphs');}
  add(svg,'text',{x:45,y:82,'font-size':13,fill:'#758491'},state.subtitle);
- const shown=features();const boundsFeatures=state.area?(state.view==='provinces'?D.provinces:D.regions).features.filter(f=>f.id===state.area):D.regions.features;
+ const shown=features();const boundsFeatures=state.area?(state.view==='provinces'?D.provinces:D.regions).features.filter(f=>inArea(f.id)):D.regions.features;
  let minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity;for(const f of boundsFeatures)walk(f.geometry.coordinates,p=>{const [x,y]=projected(p);minX=Math.min(x,minX);maxX=Math.max(x,maxX);minY=Math.min(y,minY);maxY=Math.max(y,maxY);});
  const factor=Math.min(900/(maxX-minX),570/(maxY-minY));const dx=50+(900-factor*(maxX-minX))/2,dy=155+(570-factor*(maxY-minY))/2;
  const point=p=>{const [x,y]=projected(p);return [dx+(x-minX)*factor,dy+(maxY-y)*factor];};
  const defs=add(svg,'defs');const clip=add(defs,'clipPath',{id:'map-clip'});add(clip,'rect',{x:35,y:145,width:930,height:600});const mapGroup=add(svg,'g',{'clip-path':'url(#map-clip)'});
  const vals=Object.fromEntries(shown.map(f=>[f.id,value(f)]));const scale=C.scale(vals);lastScale=scale;
- const gaps=state.showGaps?(state.view==='districts'?D.gaps.features.filter(f=>!state.area||f.properties.region_id===state.area):state.view==='provinces'&&!state.area?D.unassigned.features:[]):[];
+ if(state.view==='districts')for(const f of boundsFeatures)add(mapGroup,'path',{d:geometryPath(f.geometry,point),fill:state.emptyColor,stroke:'#8497a6','stroke-width':state.borderWidth,'fill-rule':'evenodd',class:'region-backdrop','data-region':f.id});
+ const gaps=state.showGaps?(state.view==='districts'?D.gaps.features.filter(f=>inArea(f.properties.region_id)):state.view==='provinces'&&!state.area?D.unassigned.features:[]):[];
  for(const f of gaps)add(mapGroup,'path',{d:geometryPath(f.geometry,point),fill:'#eef0f2',stroke:'#bac4cd','stroke-width':.8,'stroke-dasharray':'3 3','fill-rule':'evenodd'});
  for(const f of shown){
   const path=add(mapGroup,'path',{d:geometryPath(f.geometry,point),fill:C.color(value(f),scale,state.palette,state.reverse,state.emptyColor),stroke:selected===f.id?'#147d83':'#8497a6','stroke-width':selected===f.id?2:state.borderWidth,'fill-rule':'evenodd',class:'map-area',tabindex:0,role:'button','aria-label':title(f)+': '+format(value(f)),'data-id':f.id});
@@ -94,7 +96,7 @@ function renderMap(){
  }
  if(state.loc){for(const f of D.loc.features){add(mapGroup,'path',{d:geometryPath(f.geometry,point),fill:'none',stroke:'white','stroke-width':5,'pointer-events':'none'});add(mapGroup,'path',{d:geometryPath(f.geometry,point),fill:'none',stroke:'#b12b4d','stroke-width':2.3,'stroke-dasharray':'7 5','pointer-events':'none'});}add(svg,'text',{x:650,y:128,'font-size':11,fill:'#b12b4d'},'— — LoC · India–Pakistan (approximate)');}
  const placed=[],labels=[];
- const contextLabels=state.view==='districts'?D.context.features.filter(f=>!state.area||f.properties.region_id===state.area):[];
+ const contextLabels=state.view==='districts'?D.context.features.filter(f=>inArea(f.properties.region_id)):[];
  if(state.labels!=='none')for(const f of [...shown,...contextLabels].sort((a,b)=>Number(value(b)!==null)-Number(value(a)!==null))){
   const p=f.properties.label_point;if(!p)continue;const [px,py]=point(p),v=value(f);
   const isContext=f.properties.feature_kind==='geographic_area';
@@ -139,7 +141,7 @@ function select(id){selected=id;switchTab('data');$('search').value='';renderRow
 function renderRows(){const q=C.normalize($('search').value);const rows=features().filter(f=>C.normalize(title(f)+' '+f.id).includes(q)).sort((a,b)=>title(a).localeCompare(title(b)));$('value-rows').replaceChildren();$('row-count').textContent=rows.length+' areas · blank means no data';for(const f of rows){const row=document.createElement('div');row.className='value-row'+(selected===f.id?' selected':'');const label=document.createElement('label');label.htmlFor='value-'+f.id;label.textContent=title(f);const sub=document.createElement('small');sub.textContent=(names[f.properties.region_id]||'')+' · '+f.id;label.append(sub);const input=document.createElement('input');input.id='value-'+f.id;input.type='number';input.step='any';input.placeholder='—';input.value=value(f)??'';input.addEventListener('change',()=>{try{if(input.validity?.badInput)throw Error('Enter a valid number');const v=C.number(input.value);checkpoint();state.values[state.view][f.id]=v;renderMap();persist();notify('Updated '+title(f));}catch(e){notify(e.message);input.value=value(f)??'';}});row.append(label,input);$('value-rows').append(row);}}
 function switchTab(tab){document.querySelectorAll('[data-tab]').forEach(b=>{const on=b.dataset.tab===tab;b.classList.toggle('active',on);b.setAttribute('aria-selected',on);});for(const name of ['data','style','layers','slides'])$('panel-'+name).hidden=name!==tab;}
 function sync(){
- $('view').value=state.view;$('area').replaceChildren(new Option(state.view==='provinces'?'All provinces':'All regions',''));for(const f of (state.view==='provinces'?D.provinces:D.regions).features)$('area').add(new Option(names[f.id]||f.properties.name,f.id));$('area').value=state.area;
+ $('view').value=state.view;$('area').replaceChildren(new Option(state.view==='provinces'?'All provinces':'All regions',''));for(const f of (state.view==='provinces'?D.provinces:D.regions).features)$('area').add(new Option(names[f.id]||f.properties.name,f.id));if(state.view!=='provinces')$('area').add(new Option(names.jk,'jk'));$('area').value=state.area;
  for(const [id,key] of Object.entries(fields)){const node=$(id);if(node.type==='checkbox')node.checked=state[key];else node.value=state[key];}
  document.querySelectorAll('[data-palette]').forEach(b=>b.classList.toggle('active',b.dataset.palette===state.palette));renderRows();renderMap();renderSlides();$('undo').disabled=!history.length;
 }
@@ -168,6 +170,7 @@ $('zoom-in').onclick=()=>setZoom(zoom+.2);$('zoom-out').onclick=()=>setZoom(zoom
 for(const b of document.querySelectorAll('[data-tab]'))b.onclick=()=>switchTab(b.dataset.tab);
 const launch=new URLSearchParams(location.search);
 if(Object.hasOwn(modes,launch.get('view'))){state.view=launch.get('view');state.area='';}
+if(state.view!=='provinces'&&['jk',...D.regions.features.map(f=>f.id)].includes(launch.get('area')))state.area=launch.get('area');
 sync();
 if(['data','style','layers','slides'].includes(launch.get('panel')))switchTab(launch.get('panel'));
 if(launch.get('import')==='1'){switchTab('data');$('csv-text').closest('details').open=true;$('csv-text').focus();}

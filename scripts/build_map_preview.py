@@ -40,6 +40,9 @@ def build(output='output'):
         return json.loads((out / (name + '.geojson')).read_text(encoding='utf-8'))
     regions = read('jammu_kashmir_six_regions')
     districts = read('jammu_kashmir_districts')
+    output_json(out / 'districts_jk.geojson',
+                [f for f in districts['features'] if f['properties']['region_id'] in ('jammu', 'kashmir')],
+                districts.get('metadata', {}))
     masks = {f['id']: shape(f['geometry']) for f in regions['features']}
     valley_ajk = {8191414, 8191217, 8192278}  # Muzaffarabad, Neelam, Hattian Bala
     ajk_districts = [f for f in districts['features'] if f['properties']['region_id'] == 'ajk']

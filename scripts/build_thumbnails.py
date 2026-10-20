@@ -9,8 +9,13 @@ def build(output, assets):
     colors = ['#d7e6d7', '#b9d1c3', '#e5b875', '#78a799', '#44796b', '#ead8b8']
     for kind, filename in [('regions', 'jammu_kashmir_six_regions'),
                            ('districts', 'jammu_kashmir_districts'),
-                           ('provinces', 'jammu_kashmir_provinces')]:
+                           ('provinces', 'jammu_kashmir_provinces'),
+                           ('ajk', 'districts_ajk'), ('gb', 'districts_gb'), ('jk', 'districts_jk')]:
         data = json.loads((Path(output) / (filename + '.geojson')).read_text(encoding='utf-8'))
+        if kind in ('districts', 'ajk', 'gb', 'jk'):
+            regions = json.loads((Path(output) / 'jammu_kashmir_six_regions.geojson').read_text(encoding='utf-8'))
+            ids = {'ajk': ['ajk'], 'gb': ['gb'], 'jk': ['jammu', 'kashmir']}.get(kind)
+            data['features'] = [f for f in regions['features'] if ids is None or f['id'] in ids] + data['features']
         geoms = [shape(f['geometry']).simplify(.006, preserve_topology=True) for f in data['features']]
         def project(p):
             return p[0], math.log(math.tan(math.pi / 4 + p[1] * math.pi / 360)) * 180 / math.pi

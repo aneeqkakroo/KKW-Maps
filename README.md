@@ -2,8 +2,25 @@
 
 A free map-data editor with no registration or backend. Open `index.html` for the landing page or `districts.html` for the standalone editor.
 
+Free-to-use GeoJSON maps of Kashmir, derived from OpenStreetMap, with a complete six-region display outline and available district boundaries. Accuracy is limited by the source snapshots: these are approximate, disputed boundaries, not survey-certified borders or a verified complete current district inventory. Reuse is free under ODbL 1.0 with OpenStreetMap attribution and applicable share-alike requirements.
+
+## GeoJSON downloads
+
+| Map | Repository download | Public URL |
+|---|---|---|
+| Complete six-region map | [GeoJSON](output/jammu_kashmir_six_regions.geojson) | [Download](https://maps.kashmirkewaris.org/geojson/jammu_kashmir_six_regions.geojson) |
+| Available districts | [GeoJSON](output/jammu_kashmir_districts.geojson) | [Download](https://maps.kashmirkewaris.org/geojson/jammu_kashmir_districts.geojson) |
+| AJK | [GeoJSON](output/districts_ajk.geojson) | [Download](https://maps.kashmirkewaris.org/geojson/districts_ajk.geojson) |
+| GB | [GeoJSON](output/districts_gb.geojson) | [Download](https://maps.kashmirkewaris.org/geojson/districts_gb.geojson) |
+| J&K (Jammu + Kashmir divisions) | [GeoJSON](output/districts_jk.geojson) | [Download](https://maps.kashmirkewaris.org/geojson/districts_jk.geojson) |
+| Kashmir Division | [GeoJSON](output/districts_kashmir.geojson) | [Download](https://maps.kashmirkewaris.org/geojson/districts_kashmir.geojson) |
+| Ladakh | [GeoJSON](output/districts_ladakh.geojson) | [Download](https://maps.kashmirkewaris.org/geojson/districts_ladakh.geojson) |
+
+Public URLs reflect the configured deployment and require publishing the latest build. Use the six-region file for full geographic coverage; district files alone omit areas without district geometry.
+
 ## Features
 
+- AJK, GB and J&K district templates with matching regional previews. J&K combines Jammu and Kashmir divisions; Ladakh remains separately available.
 - Region, District and Pre Partition views; CSV import and manual values.
 - Palettes, labels, sum/average summaries, LoC overlay and optional Kashmir Ke Waris watermark (Layers panel).
 - PNG, SVG, CSV and GeoJSON exports; browser autosave, project files, snapshots and undo.
